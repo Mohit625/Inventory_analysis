@@ -44,7 +44,8 @@ C_ACCENT2    = colors.HexColor("#1d4ed8")   # deep blue
 C_SUCCESS    = colors.HexColor("#22c55e")
 C_WARNING    = colors.HexColor("#f59e0b")
 C_DANGER     = colors.HexColor("#ef4444")
-C_TEXT       = colors.HexColor("#e5e7eb")
+C_TEXT       = colors.HexColor("#e5e7eb")   # light text — use only on dark card/table backgrounds
+C_TEXT_DARK  = colors.HexColor("#1f2937")   # dark text — use on the white page background
 C_MUTED      = colors.HexColor("#6b7280")
 C_BORDER     = colors.HexColor("#2d3748")
 C_CARD       = colors.HexColor("#1c1f26")
@@ -62,13 +63,13 @@ def _styles():
                              fontName="Helvetica-Bold", spaceAfter=4),
         "h2": ParagraphStyle("h2", fontSize=13, textColor=C_ACCENT,
                              fontName="Helvetica-Bold", spaceBefore=10, spaceAfter=4),
-        "h3": ParagraphStyle("h3", fontSize=10, textColor=C_TEXT,
+        "h3": ParagraphStyle("h3", fontSize=10, textColor=C_TEXT_DARK,
                              fontName="Helvetica-Bold", spaceAfter=3),
-        "body": ParagraphStyle("body", fontSize=9, textColor=C_TEXT,
+        "body": ParagraphStyle("body", fontSize=9, textColor=C_TEXT_DARK,
                                fontName="Helvetica", leading=14),
         "muted": ParagraphStyle("muted", fontSize=8, textColor=C_MUTED,
                                 fontName="Helvetica", leading=12),
-        "center": ParagraphStyle("center", fontSize=9, textColor=C_TEXT,
+        "center": ParagraphStyle("center", fontSize=9, textColor=C_TEXT_DARK,
                                  fontName="Helvetica", alignment=TA_CENTER),
         "tag_safe":    ParagraphStyle("tag_safe", fontSize=8, textColor=C_SUCCESS,
                                       fontName="Helvetica-Bold", alignment=TA_CENTER),
@@ -186,7 +187,7 @@ def _forecast_table(export_df: pd.DataFrame) -> Table:
     preview["forecast_lower"]  = preview["forecast_lower"].round(1)
     preview["forecast_upper"]  = preview["forecast_upper"].round(1)
 
-    headers = ["Date", "Forecast", "Lower", "Upper", "Reorder?"]
+    headers = ["Date", "Predicted Demand", "Low Estimate", "High Estimate", "Reorder?"]
     col_w = [(PAGE_W - 2 * MARGIN) / 5] * 5
 
     S = _styles()
@@ -262,7 +263,25 @@ def build_pdf_report(
     story.append(HRFlowable(width="100%", thickness=0.5,
                             color=C_ACCENT, spaceAfter=8))
 
-    # KPI row 1 — inventory
+    # Plain-language summary — the headline takeaway, no jargon
+    if insights.stockout_alert:
+        summary_text = (
+            f"<b>Bottom line:</b> Tomorrow's expected demand ({insights.next_day_demand} units) "
+            f"is higher than your current stock ({insights.current_stock} units). "
+            f"You may run out soon unless you reorder now."
+        )
+    elif insights.reorder_required:
+        summary_text = (
+            f"<b>Bottom line:</b> Your stock ({insights.current_stock} units) has dropped below "
+            f"the reorder point ({insights.reorder_point} units). It's time to place a new order."
+        )
+    else:
+        summary_text = (
+            f"<b>Bottom line:</b> Stock levels look healthy right now. No action needed based on "
+            f"current sales predictions."
+        )
+    story.append(Paragraph(summary_text, S["body"]))
+    story.append(Spacer(1, 5 * mm))
     stockout_status = "danger" if insights.stockout_alert else "ok"
     reorder_status  = "warn"   if insights.reorder_required else "ok"
     story.append(Paragraph("Inventory Status", S["h2"]))
@@ -274,18 +293,24 @@ def build_pdf_report(
     ]))
     story.append(Spacer(1, 4 * mm))
 
-    # KPI row 2 — model metrics
-    mae_val  = str(metrics["mae"])  if metrics.get("mae")  is not None else "N/A"
-    rmse_val = str(metrics["rmse"]) if metrics.get("rmse") is not None else "N/A"
-    story.append(Paragraph("Model Performance", S["h2"]))
+    # KPI row 2 — forecast reliability, explained in plain language
+    mae_val  = f"{metrics['mae']} units"  if metrics.get("mae")  is not None else "N/A"
+    rmse_val = f"{metrics['rmse']} units" if metrics.get("rmse") is not None else "N/A"
+    story.append(Paragraph("Forecast Reliability", S["h2"]))
     story.append(_kpi_row([
-        ("MAE",           mae_val,                              "neutral"),
-        ("RMSE",          rmse_val,                             "neutral"),
+        ("Typical Forecast Error",     mae_val,                              "neutral"),
+        ("Size of Occasional Misses",  rmse_val,                             "neutral"),
         ("Avg Daily Demand", f"{insights.average_daily_demand}", "neutral"),
         ("Seasonal Peak Month",
          str(insights.seasonal_peak_month) if insights.seasonal_peak_month else "N/A",
          "neutral"),
     ]))
+    story.append(Paragraph(
+        "\"Typical Forecast Error\" is how far off predictions usually are, in units per day — "
+        "smaller is better. \"Size of Occasional Misses\" shows how big the forecast's rare "
+        "bigger mistakes tend to be; it's naturally a bit higher than the typical error.",
+        S["muted"],
+    ))
     story.append(Spacer(1, 4 * mm))
 
     # Alert badges
@@ -314,8 +339,9 @@ def build_pdf_report(
     story.append(_chart_to_image(chart, width_mm=170, height_mm=70))
     story.append(Spacer(1, 3 * mm))
     story.append(Paragraph(
-        "Blue line = Prophet forecast &nbsp;|&nbsp; Shaded band = 95% confidence interval "
-        "&nbsp;|&nbsp; Green line = Actual sales",
+        "Teal line = your actual past sales &nbsp;|&nbsp; Blue line = predicted future demand "
+        "&nbsp;|&nbsp; Light blue shaded area = the range demand will most likely fall within "
+        "(actual results should land inside this band about 19 times out of 20)",
         S["muted"],
     ))
 
@@ -326,22 +352,26 @@ def build_pdf_report(
     story.append(Spacer(1, 6 * mm))
     story.append(Paragraph("14-Day Forecast Detail", S["h2"]))
     story.append(Paragraph(
-        "Showing the next 14 forecasted days. Reorder Required = Yes means "
-        "current stock falls below the computed reorder point for that day.",
+        "This shows the next 14 days of predicted demand. If \"Reorder?\" says \"Yes\", your "
+        "stock is expected to fall below the reorder point on that day — it's time to place a "
+        "new order before that happens.",
         S["muted"],
     ))
     story.append(Spacer(1, 3 * mm))
     story.append(_forecast_table(export_df))
     story.append(Spacer(1, 6 * mm))
 
-    # Reorder formula callout
+    # Reorder point explanation — plain language, no formula notation
     formula_data = [[
-        Paragraph("Reorder Point Formula", ParagraphStyle(
+        Paragraph("What Is the Reorder Point?", ParagraphStyle(
             "fh", fontSize=9, textColor=C_ACCENT, fontName="Helvetica-Bold")),
         Paragraph(
-            f"Reorder Point = Avg Daily Demand × Lead Time + Safety Stock<br/>"
-            f"= {insights.average_daily_demand:.1f} × lead_time + safety_stock "
-            f"= <b>{insights.reorder_point}</b>",
+            f"It's the stock level that should trigger a new order. It's built from three things: "
+            f"your average daily sales ({insights.average_daily_demand:.1f} units/day), how long "
+            f"it takes to receive a new order, and an extra safety cushion in case demand spikes "
+            f"or a delivery runs late. Putting those together, your reorder point is "
+            f"<b>{insights.reorder_point} units</b> — once stock drops to this level, it's time "
+            f"to reorder.",
             ParagraphStyle("fb", fontSize=9, textColor=C_TEXT,
                            fontName="Helvetica", leading=14)),
     ]]

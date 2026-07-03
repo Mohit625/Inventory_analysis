@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO, StringIO
+from pathlib import Path
 
 import plotly.graph_objects as go
 import matplotlib.dates as mdates
@@ -21,6 +22,28 @@ from main import (
 )
 from sku_comparison import render_sku_comparison_from_cache
 from pdf_report import build_pdf_report
+
+# ── Dark theme for all matplotlib charts (forecast, decomposition, model
+# comparison) so they match the rest of the dark UI instead of rendering
+# with a white background. Applied globally so every chart picks it up
+# without needing to be styled individually.
+MPL_BG = "#0d1117"
+MPL_GRID = "#21262d"
+MPL_TEXT = "#e6edf3"
+plt.rcParams.update({
+    "figure.facecolor": MPL_BG,
+    "axes.facecolor": MPL_BG,
+    "savefig.facecolor": MPL_BG,
+    "axes.edgecolor": MPL_GRID,
+    "axes.labelcolor": MPL_TEXT,
+    "text.color": MPL_TEXT,
+    "xtick.color": MPL_TEXT,
+    "ytick.color": MPL_TEXT,
+    "grid.color": MPL_GRID,
+    "legend.facecolor": "#161b22",
+    "legend.edgecolor": MPL_GRID,
+    "legend.labelcolor": MPL_TEXT,
+})
 
 # In your main app, wherever you want the section:
 #render_sku_comparison(df, forecast_df)
@@ -66,6 +89,9 @@ section[data-testid="stSidebar"] {
 """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Inventory Demand Forecasting System", layout="wide")
+
+APP_DIR = Path(__file__).resolve().parent
+LOGO_PATH = APP_DIR / "foresight_logo_transparent.svg"
 
 processor = DataProcessor()
 logic = BusinessLogic()
@@ -159,8 +185,8 @@ def build_forecast_chart(
 ) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(12, 5))
 
-    ax.plot(history["date"], history["sales"], label="Actual Sales", linewidth=2, color="#0f766e")
-    ax.plot(forecast["ds"], forecast["yhat"], label="Forecast", linewidth=2, color="#1d4ed8")
+    ax.plot(history["date"], history["sales"], label="Actual Sales", linewidth=2, color="#2dd4bf")
+    ax.plot(forecast["ds"], forecast["yhat"], label="Forecast", linewidth=2, color="#60a5fa")
     ax.fill_between(
         forecast["ds"],
         forecast["yhat_lower"],
@@ -182,56 +208,8 @@ def build_forecast_chart(
     return fig
 
 
-# def build_pdf_report(
-#     chart: plt.Figure,
-#     export_df: pd.DataFrame,
-#     selected_store: str,
-#     selected_item: str,
-#     insights,
-#     metrics: dict,
-# ) -> bytes:
-#     buffer = BytesIO()
-#     with PdfPages(buffer) as pdf:
-#         pdf.savefig(chart)
 
-#         summary_fig, summary_ax = plt.subplots(figsize=(11.69, 8.27))
-#         summary_ax.axis("off")
-#         summary_lines = [
-#             "Inventory Forecast Summary",
-#             f"Store: {selected_store}",
-#             f"Item / SKU: {selected_item}",
-#             f"Next-Day Demand: {insights.next_day_demand}",
-#             f"Current Stock: {insights.current_stock}",
-#             f"Lead-Time Demand: {insights.future_demand}",
-#             f"Reorder Point: {insights.reorder_point}",
-#             f"Stockout Alert: {'Yes' if insights.stockout_alert else 'No'}",
-#             f"Reorder Required: {'Yes' if insights.reorder_required else 'No'}",
-#             f"MAE: {metrics['mae'] if metrics['mae'] is not None else 'N/A'}",
-#             f"RMSE: {metrics['rmse'] if metrics['rmse'] is not None else 'N/A'}",
-#         ]
-#         summary_ax.text(0.05, 0.95, "\n".join(summary_lines), va="top", fontsize=14)
-
-#         preview = export_df.tail(10)[
-#             ["date", "forecast_demand", "forecast_lower", "forecast_upper", "reorder_required"]
-#         ].copy()
-#         preview["date"] = preview["date"].dt.strftime("%Y-%m-%d")
-#         table = summary_ax.table(
-#             cellText=preview.values,
-#             colLabels=preview.columns,
-#             loc="lower center",
-#             cellLoc="center",
-#         )
-#         table.auto_set_font_size(False)
-#         table.set_fontsize(9)
-#         table.scale(1, 1.4)
-#         pdf.savefig(summary_fig)
-#         plt.close(summary_fig)
-
-#     buffer.seek(0)
-#     return buffer.getvalue()
-
-st.image("/Users/DELL/Documents/INVENTORY/foresight_logo_transparent.svg", width=780)
-#col1, col2 = st.columns([1, 5])
+st.image(str(LOGO_PATH), width=780)
 
 #with col1:
 
@@ -290,12 +268,12 @@ dataset_hash = str(len(dataset)) + "_" + str(dataset["date"].max()) + "_" + str(
 
 st.markdown("## 📊 Executive Summary")
 
-st.sidebar.image("/Users/DELL/Documents/INVENTORY/foresight_logo_transparent.svg", width=350)
+st.sidebar.image(str(LOGO_PATH), width=350)
 st.sidebar.markdown("### ⚙️ Control Panel")
-store_options = store_options = sorted(dataset["store_id"].unique(), key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else x)
+store_options = sorted(dataset["store_id"].unique(), key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else x)
 selected_store = st.sidebar.selectbox("Store", store_options)
 
-item_options = item_options = sorted(dataset.loc[dataset["store_id"] == selected_store, "item_id"].unique(), key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else x)
+item_options = sorted(dataset.loc[dataset["store_id"] == selected_store, "item_id"].unique(), key=lambda x: int(x.split("_")[-1]) if x.split("_")[-1].isdigit() else x)
 selected_item = st.sidebar.selectbox("Item / SKU", item_options)
 
 store_item_data = processor.filter_series(dataset, selected_store, selected_item)
@@ -509,14 +487,14 @@ with left_col:
     fig2, ax2 = plt.subplots(figsize=(6,2))
 
 # Actual
-    ax2.plot(prophet_data['ds'], prophet_data['y'], label='Actual', color='black')
+    ax2.plot(prophet_data['ds'], prophet_data['y'], label='Actual', color='#e5e7eb')
 
 # Prophet
-    ax2.plot(artifacts.forecast['ds'], artifacts.forecast['yhat'], label='Prophet', color='blue')
+    ax2.plot(artifacts.forecast['ds'], artifacts.forecast['yhat'], label='Prophet', color='#60a5fa')
 
 # Linear
     linear_dates = artifacts.forecast['ds'].iloc[len(prophet_data):len(prophet_data)+len(linear_preds)]
-    ax2.plot(linear_dates, linear_preds, label='Linear Regression', color='orange')
+    ax2.plot(linear_dates, linear_preds, label='Linear Regression', color='#fb923c')
 
     ax2.legend()
     ax2.set_title("Model Comparison")
@@ -544,22 +522,6 @@ else:
 
 
 st.markdown("---")
-
-all_sku_data = build_all_sku_forecasts_cached(
-    dataset,
-    dataset_hash,
-    forecast_days=forecast_days,
-    lead_time_days=lead_time_days,
-    safety_stock=int(safety_stock),
-)
-render_sku_comparison_from_cache(all_sku_data, dataset)
-
-
-
-
-st.markdown("---")
-
-
 
 left_col, right_col = st.columns(2)
 
@@ -618,6 +580,44 @@ with right_col:
     st.plotly_chart(fig2, use_container_width=True)
 
 st.write("Anomalies detected:", len(anomalies))
+st.markdown("---")
+
+# Multi-SKU comparison forecasts every SKU in the dataset (2 Prophet fits each),
+# which can take a long time on larger datasets. It's gated behind a button so
+# it never blocks the rest of the page from rendering, and the result is kept
+# in session_state so it doesn't need to be recomputed on every rerun.
+sku_comparison_key = (dataset_hash, forecast_days, lead_time_days, int(safety_stock))
+
+if "sku_comparison_key" not in st.session_state:
+    st.session_state.sku_comparison_key = None
+    st.session_state.sku_comparison_data = None
+
+comparison_ready = st.session_state.sku_comparison_key == sku_comparison_key
+
+st.markdown("## 🔀 Multi-SKU Comparison")
+if not comparison_ready:
+    st.info(
+        "Forecasts every SKU in your dataset for side-by-side comparison. "
+        "This can take a while on larger datasets, so it runs on demand."
+    )
+    run_comparison = st.button("⚡ Run Multi-SKU Comparison")
+else:
+    run_comparison = st.button("🔄 Re-run Multi-SKU Comparison")
+
+if run_comparison:
+    st.session_state.sku_comparison_data = build_all_sku_forecasts_cached(
+        dataset,
+        dataset_hash,
+        forecast_days=forecast_days,
+        lead_time_days=lead_time_days,
+        safety_stock=int(safety_stock),
+    )
+    st.session_state.sku_comparison_key = sku_comparison_key
+    comparison_ready = True
+
+if comparison_ready:
+    render_sku_comparison_from_cache(st.session_state.sku_comparison_data, dataset)
+
 st.markdown("---")
 
 st.subheader("🧠 Insights")

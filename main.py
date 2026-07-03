@@ -6,6 +6,7 @@ from typing import BinaryIO
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import mean_squared_error
 from models import predict_linear, train_linear_model
 
 try:
@@ -16,7 +17,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - depends on local enviro
     PROPHET_IMPORT_ERROR = exc
 
 
-DEFAULT_DATASET_PATH = Path("/Users/DELL/Downloads/retail_sales.csv")
+DEFAULT_DATASET_PATH = Path(__file__).resolve().parent / "retail_sales.csv"
 REQUIRED_COLUMNS = {"date", "sales"}
 OPTIONAL_DEFAULTS = {
     "store_id": "store_1",
@@ -434,8 +435,6 @@ class BusinessLogic:
         )
         return export
 
-
-from sklearn.metrics import mean_squared_error
 
 def run_cli_demo() -> None:
     processor = DataProcessor()

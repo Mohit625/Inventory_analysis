@@ -284,7 +284,6 @@ def render_sku_comparison_from_cache(all_data: dict, dataset: pd.DataFrame):
     Receives pre-built forecast data from app.py's @st.cache_data call.
     No re-processing happens here — only UI rendering.
     """
-    st.markdown("## 🔀 Multi-SKU Comparison")
     st.markdown("Compare demand forecasts, stock health, and weekly patterns across all SKUs.")
 
     sku_labels = list(all_data.keys())
