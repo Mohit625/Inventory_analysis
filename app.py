@@ -100,21 +100,23 @@ logic = BusinessLogic()
 def build_all_sku_forecasts_cached(
     _dataset: pd.DataFrame,       # leading _ = not hashed (DataFrame hashing is slow/unreliable)
     dataset_hash: str,            # we hash manually — see STEP 2
+    selected_pairs: tuple[tuple[str, str], ...],
     forecast_days: int,
     lead_time_days: int,
     safety_stock: int,
 ) -> dict:
     """
-    Runs Prophet for every SKU in the dataset once.
-    Cached by (dataset_hash, forecast_days, lead_time_days, safety_stock).
+    Runs Prophet only for the selected (store, item) pairs.
+    Cached by (dataset_hash, selected_pairs, forecast_days, lead_time_days, safety_stock).
     Survives sidebar store/item changes and page interactions.
-    Only re-runs if the dataset itself changes or the three parameters change.
+    Only re-runs if the dataset, the selected SKUs, or the three parameters change.
     """
     from sku_comparison import _build_all_forecasts
     processor = DataProcessor()
     logic = BusinessLogic()
     return _build_all_forecasts(
-        _dataset, processor, logic, forecast_days, lead_time_days, safety_stock
+        _dataset, processor, logic, forecast_days, lead_time_days, safety_stock,
+        skus=selected_pairs,
     )
 
 @st.cache_data(show_spinner=False)
@@ -582,11 +584,45 @@ with right_col:
 st.write("Anomalies detected:", len(anomalies))
 st.markdown("---")
 
-# Multi-SKU comparison forecasts every SKU in the dataset (2 Prophet fits each),
-# which can take a long time on larger datasets. It's gated behind a button so
-# it never blocks the rest of the page from rendering, and the result is kept
-# in session_state so it doesn't need to be recomputed on every rerun.
-sku_comparison_key = (dataset_hash, forecast_days, lead_time_days, int(safety_stock))
+# Multi-SKU comparison fits Prophet twice per SKU (evaluation + forecast), so
+# forecasting every SKU in a large dataset (thousands of store/item pairs) can
+# take hours. Instead of computing all of them, the user picks a bounded subset
+# up front — ranked by total sales — and only that subset is ever forecast.
+# It's gated behind a button so it never blocks the rest of the page from
+# rendering, and the result is kept in session_state so it doesn't need to be
+# recomputed on every rerun.
+MAX_SKUS_FOR_COMPARISON = 15
+
+st.markdown("## 🔀 Multi-SKU Comparison")
+
+sku_label_to_pair = {
+    f"{store} / {item}": (store, item)
+    for store, item in zip(sku_summary["store_id"], sku_summary["item_id"])
+}
+all_sku_labels = list(sku_label_to_pair.keys())
+
+if len(all_sku_labels) > MAX_SKUS_FOR_COMPARISON:
+    st.warning(
+        f"This dataset has {len(all_sku_labels)} SKUs. Forecasting all of them would need "
+        f"{len(all_sku_labels) * 2} model fits and could take a very long time, so pick up to "
+        f"{MAX_SKUS_FOR_COMPARISON} to compare (options are ranked by total sales)."
+    )
+else:
+    st.info(
+        "Forecasts the selected SKUs for side-by-side comparison. "
+        "This can take a while, so it runs on demand."
+    )
+
+default_sku_labels = all_sku_labels[: min(6, len(all_sku_labels))]
+selected_sku_labels = st.multiselect(
+    "SKUs to forecast (ranked by total sales)",
+    options=all_sku_labels,
+    default=default_sku_labels,
+    max_selections=MAX_SKUS_FOR_COMPARISON,
+)
+selected_pairs = tuple(sorted(sku_label_to_pair[label] for label in selected_sku_labels))
+
+sku_comparison_key = (selected_pairs, forecast_days, lead_time_days, int(safety_stock))
 
 if "sku_comparison_key" not in st.session_state:
     st.session_state.sku_comparison_key = None
@@ -594,20 +630,16 @@ if "sku_comparison_key" not in st.session_state:
 
 comparison_ready = st.session_state.sku_comparison_key == sku_comparison_key
 
-st.markdown("## 🔀 Multi-SKU Comparison")
-if not comparison_ready:
-    st.info(
-        "Forecasts every SKU in your dataset for side-by-side comparison. "
-        "This can take a while on larger datasets, so it runs on demand."
-    )
-    run_comparison = st.button("⚡ Run Multi-SKU Comparison")
-else:
-    run_comparison = st.button("🔄 Re-run Multi-SKU Comparison")
+run_comparison = st.button(
+    "🔄 Re-run Multi-SKU Comparison" if comparison_ready else "⚡ Run Multi-SKU Comparison",
+    disabled=not selected_pairs,
+)
 
 if run_comparison:
     st.session_state.sku_comparison_data = build_all_sku_forecasts_cached(
         dataset,
         dataset_hash,
+        selected_pairs,
         forecast_days=forecast_days,
         lead_time_days=lead_time_days,
         safety_stock=int(safety_stock),

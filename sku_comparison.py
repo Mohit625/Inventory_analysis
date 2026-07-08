@@ -93,11 +93,13 @@ def _build_all_forecasts(
     forecast_days: int,
     lead_time_days: int,
     safety_stock: int,
+    skus: list[tuple[str, str]] | tuple[tuple[str, str], ...],
 ) -> dict[str, dict]:
 
     results = {}
 
-    skus = dataset[["store_id", "item_id"]].drop_duplicates().values.tolist()
+    if not skus:
+        return results
 
     progress = st.progress(0, text="⚡ Running parallel forecasts...")
 
